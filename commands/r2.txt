@@ -1,0 +1,19 @@
+# retrieval behavior check
+
+python - <<'PY'
+from src.indexer import build_index
+from src.retriever import retrieve
+
+build_index('_reports_json', '_reports_html', 'data/reports_index.db')
+
+for doc, q in [
+    ('bar-only.json', 'charge in march 2024'),
+    ('bar-only.json', 'Cube Eatery category'),
+    ('bar-only.json', 'capital of mars'),
+]:
+    r = retrieve(q, doc, 'data/reports_index.db')
+    print('\\nquery=', q)
+    print('mode=', r['mode'], 'evidence_count=', len(r['evidence']))
+    if r['evidence']:
+        print('top=', r['evidence'][0]['doc_id'], r['evidence'][0]['chunk_type'])
+PY
