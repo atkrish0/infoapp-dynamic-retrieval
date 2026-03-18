@@ -210,6 +210,45 @@ def _dedupe_by_id(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _signature(item: dict[str, Any]) -> str:
+    snippet = item.get("snippet", "")
+    normalized = re.sub(r"\brow\s*=\s*\d+\b", "row", snippet.lower())
+    normalized = re.sub(r"\brow\s+\d+\b", "row", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return f"{item.get('doc_id')}|{item.get('chunk_type')}|{normalized}"
+
+
+def _diversify_results(
+    results: list[dict[str, Any]],
+    *,
+    k: int,
+    max_per_doc: int = 4,
+) -> list[dict[str, Any]]:
+    """
+    Keep high-scoring results while reducing near-duplicates and per-doc dominance.
+    """
+    out: list[dict[str, Any]] = []
+    seen_signatures: set[str] = set()
+    doc_counts: dict[str, int] = {}
+
+    for item in results:
+        doc_id = str(item["doc_id"])
+        if doc_counts.get(doc_id, 0) >= max_per_doc:
+            continue
+
+        sig = _signature(item)
+        if sig in seen_signatures:
+            continue
+
+        seen_signatures.add(sig)
+        doc_counts[doc_id] = doc_counts.get(doc_id, 0) + 1
+        out.append(item)
+        if len(out) >= k:
+            break
+
+    return out
+
+
 def retrieve(query: str, current_doc_id: str, db_path: str, k: int = 8) -> dict[str, Any]:
     """
     Retrieve evidence using current-doc first, then cross-doc fallback.
@@ -228,11 +267,12 @@ def retrieve(query: str, current_doc_id: str, db_path: str, k: int = 8) -> dict[
             limit=max(k, 6),
         )
         if _is_sufficient(local, threshold):
+            evidence = _diversify_results(local, k=k, max_per_doc=k)
             return {
                 "query": query,
                 "current_doc_id": current_doc_id,
                 "mode": "current_doc",
-                "evidence": local[:k],
+                "evidence": evidence,
             }
 
         global_results = _execute_search(
@@ -245,7 +285,7 @@ def retrieve(query: str, current_doc_id: str, db_path: str, k: int = 8) -> dict[
 
         merged = _dedupe_by_id(local + global_results)
         merged.sort(key=lambda x: x["score"], reverse=True)
-        evidence = merged[:k]
+        evidence = _diversify_results(merged, k=k, max_per_doc=4)
 
         cross_candidates = [item for item in global_results if item["doc_id"] != current_doc_id]
         has_cross_doc = any(item["doc_id"] != current_doc_id for item in evidence)

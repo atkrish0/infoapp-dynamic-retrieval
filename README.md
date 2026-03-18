@@ -34,8 +34,23 @@ This is intentionally not production-hardening yet; it is a working prototype fo
 `src/chat.py`
 - Chat turn wrapper that formats grounded answers from retrieval output.
 
+`src/agent.py`
+- Agentic orchestration layer (tool call flow + optional LLM synthesis).
+
+`src/llm.py`
+- Optional OpenAI Responses API client for grounded answer synthesis.
+
+`src/creditcard_indexer.py`
+- Dedicated indexer for credit-card HTML + Excel pair into SQLite.
+
+`src/creditcard_query.py`
+- SQL-first query engine for credit-card use case (aggregates, row lookup, FTS fallback).
+
 `notebooks/mvp_chat.ipynb`
 - Main interactive notebook UI.
+
+`notebooks/creditcard_sql_chat.ipynb`
+- Dedicated notebook for credit-card HTML + Excel use case.
 
 `data/`
 - Runtime output folder for SQLite index (`reports_index.db`).
@@ -120,6 +135,13 @@ are mapped toward human-readable column names where possible.
 
 `chat_turn(query: str, current_doc_id: str, db_path: str) -> dict`
 - One retrieval-grounded response turn for UI/API use.
+
+`agent_chat_turn(query: str, current_doc_id: str, db_path: str, use_llm: bool = True) -> dict`
+- Agentic flow:
+  - retrieve (tool step),
+  - optional second-pass query expansion,
+  - optional LLM synthesis (grounded to evidence only),
+  - includes `trace`, `intent`, `llm_used`, `llm_error`.
 
 Response shape:
 - `answer: str`
@@ -216,9 +238,25 @@ Expected behavior:
 - Interactive UI appears with:
   - report dropdown,
   - question textbox,
-  - Send/Clear buttons,
+  - Send/Clear buttons + `Use LLM synthesis` toggle,
   - chat panel,
   - evidence accordion.
+
+### D) Optional LLM synthesis (agent mode)
+
+By default, the notebook works without LLM.  
+To enable LLM synthesis, set env var before launching Jupyter:
+
+```bash
+export OPENAI_API_KEY="your_key_here"
+export OPENAI_MODEL="gpt-4.1-mini"   # optional override
+```
+
+Then enable `Use LLM synthesis (if configured)` in the UI.
+
+Behavior:
+- If key is present and call succeeds: `llm_used=True` in agent output line.
+- If key missing/fails: automatic deterministic fallback (no crash).
 
 ## 9) Current answer policy
 
@@ -253,3 +291,45 @@ Notebook UI not rendering:
 - Add lightweight FastAPI endpoint (`/agent/dispatch`) using same `chat_turn` backend.
 - Add saved regression test script for retrieval modes and alias handling.
 - Add chunk-level citation anchors and richer table rendering in notebook.
+
+## 13) Credit-card HTML + Excel flow (new)
+
+This project now includes a dedicated path for the credit-card report pair:
+- `_references/creditcard/creditcard.html`
+- `_references/creditcard/Sample Ledger Credit Card Updated.xlsx`
+
+Design:
+- Excel is treated as canonical row-level source.
+- HTML contributes report metadata/schema context.
+- Both are loaded into SQLite (`data/creditcard_index.db`).
+- Chat queries are answered via SQL first, then FTS fallback.
+
+Run:
+
+```bash
+python - <<'PY'
+from src.creditcard_indexer import build_creditcard_index
+from src.creditcard_query import creditcard_chat_turn
+
+build_creditcard_index(
+    '_references/creditcard/Sample Ledger Credit Card Updated.xlsx',
+    '_references/creditcard/creditcard.html',
+    'data/creditcard_index.db',
+    report_id='creditcard',
+    rebuild=True,
+)
+
+for q in [
+    'show row for Cube Eatery on 2022-01-01',
+    'total charge for March 2022',
+    'count transactions for Lunch tag',
+]:
+    r = creditcard_chat_turn(q, 'data/creditcard_index.db', report_id='creditcard', limit=5)
+    print(q, '->', r['mode'], r['answer'])
+PY
+```
+
+Expected output pattern:
+- row query -> `mode=sql_rows`
+- aggregate query -> `mode=sql_agg`
+- unsupported/weak query -> `mode=fts_rows` or `mode=insufficient`
