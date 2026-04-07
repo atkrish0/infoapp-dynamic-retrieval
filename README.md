@@ -269,8 +269,8 @@ Behavior:
 
 ## 10) Known limitations (MVP)
 
-- No LLM summarization/paraphrasing (by design).
-- No API server in this milestone.
+- Main report-index notebook path is still deterministic-first and heuristic-scored.
+- Browser web app currently targets the credit-card use case only.
 - Retrieval scoring is heuristic and intentionally simple.
 - HTML deep semantic extraction is lightweight.
 - No automated test suite committed yet (kept on standby as requested).
@@ -333,3 +333,49 @@ Expected output pattern:
 - row query -> `mode=sql_rows`
 - aggregate query -> `mode=sql_agg`
 - unsupported/weak query -> `mode=fts_rows` or `mode=insufficient`
+
+## 14) Browser HTML chat (FastAPI + SQL + Ollama)
+
+This path reuses existing credit-card SQL indexing/query logic and adds a thin web layer.
+
+New files:
+- `app_web.py` (FastAPI entrypoint)
+- `src/web_dispatch.py` (dispatch orchestration)
+- `src/ollama_adapter.py` (Ollama synthesis + health checks)
+- `web_static/creditcard_widget.js` (browser chat widget)
+
+Install web dependencies:
+
+```bash
+pip install -r requirements-web.txt
+```
+
+Run server:
+
+```bash
+uvicorn app_web:app --reload --port 8000
+```
+
+Open in browser:
+- `http://localhost:8000/report`
+
+Health check:
+- `http://localhost:8000/health`
+
+Optional env vars:
+
+```bash
+export CREDITCARD_HTML_PATH=\"_references/creditcard/creditcard.html\"
+export CREDITCARD_EXCEL_PATH=\"_references/creditcard/Sample Ledger Credit Card Updated.xlsx\"
+export CREDITCARD_DB_PATH=\"data/creditcard_index.db\"
+export REPORT_ID=\"creditcard\"
+export OLLAMA_BASE_URL=\"http://localhost:11434\"
+export OLLAMA_MODEL=\"llama3.1\"
+export OLLAMA_TIMEOUT_SEC=\"45\"
+export ALLOW_DETERMINISTIC_FALLBACK=\"true\"
+```
+
+Behavior:
+- `/agent/dispatch` always runs SQL retrieval first (`creditcard_chat_turn`).
+- Then it attempts Ollama synthesis with evidence citations.
+- If Ollama fails and fallback is enabled, deterministic SQL answer is returned with debug metadata.
