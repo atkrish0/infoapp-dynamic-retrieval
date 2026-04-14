@@ -350,6 +350,37 @@ Install web dependencies:
 pip install -r requirements-web.txt
 ```
 
+### First-time setup (one time)
+
+```bash
+cd /Users/atheeshkrishnan/AK/DEV/infoapp-dynamic-retrieval
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements-web.txt
+pip install ipywidgets
+ollama pull llama3.1
+```
+
+### Normal run (subsequent times)
+
+You do **not** need to recreate venv, reinstall packages, or re-pull the same model each run.
+
+Terminal A (Ollama):
+
+```bash
+# only if Ollama is not already running
+ollama serve
+```
+
+Terminal B (web app):
+
+```bash
+cd /Users/atheeshkrishnan/AK/DEV/infoapp-dynamic-retrieval
+source .venv/bin/activate
+uvicorn app_web:app --reload --port 8000
+```
+
 Run server:
 
 ```bash
@@ -379,3 +410,53 @@ Behavior:
 - `/agent/dispatch` always runs SQL retrieval first (`creditcard_chat_turn`).
 - Then it attempts Ollama synthesis with evidence citations.
 - If Ollama fails and fallback is enabled, deterministic SQL answer is returned with debug metadata.
+
+Notes:
+- If `ollama serve` says `address already in use`, Ollama is already running; continue.
+- `ollama pull llama3.1` is needed only once per machine/model unless you remove the model.
+
+Quick smoke checks (with server running):
+
+```bash
+./commands/web_smoke.sh
+```
+
+Or with a custom base URL:
+
+```bash
+./commands/web_smoke.sh http://localhost:8000
+```
+
+## 15) Web chatbot sample prompts
+
+These are good prompts for the browser chat at `/report`:
+
+1. `show row for Cube Eatery on 2022-01-01`
+- Expected: row-level answer, usually `mode=sql_rows`, citation to a matching row.
+
+2. `total charge for March 2022`
+- Expected: aggregate answer, `mode=sql_agg`, with a total charge value.
+
+3. `count transactions for Lunch tag`
+- Expected: aggregate answer, `mode=sql_agg`, with transaction count.
+
+4. `average payment in 2022`
+- Expected: aggregate answer, `mode=sql_agg`, with average payment.
+
+5. `what is vendor cube eatery category`
+- Expected: row-level answer (`mode=sql_rows` or `fts_rows`) showing category values from matching rows.
+
+6. `show transactions for Halcyon Hotel in November 2022`
+- Expected: filtered row set via SQL/FTS path with row citations.
+
+7. `show payments on 2022-01-04`
+- Expected: row-level results for matching date, usually `mode=sql_rows`, including `payment` values when present.
+
+8. `how many transactions in 2022`
+- Expected: aggregate count, `mode=sql_agg`, with `txn_count=<number>`.
+
+9. `total payment for 2022`
+- Expected: aggregate metric, `mode=sql_agg`, with `total_payment=<value>`.
+
+10. `show Business transactions in March 2022`
+- Expected: filtered row results, `mode=sql_rows` (or `fts_rows` fallback), with citations for matching rows.
